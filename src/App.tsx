@@ -11,6 +11,7 @@ import {
   ChevronUp,
   Circle,
   Coffee,
+  ImagePlus,
   MoonStar,
   NotebookPen,
   Pause,
@@ -21,6 +22,7 @@ import {
   Target,
   TimerReset,
   Trash2,
+  X,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -65,6 +67,7 @@ type DailyLog = {
   colorFrames: number;
   timeBlocks: TimeBlock[];
   lifeNote: string;
+  lifePhotos?: string[];
   calendarNote: string;
   hp: number;
   mp: number;
@@ -231,6 +234,7 @@ type LifePlanningPanelProps = {
   selectedDate: string;
   selectedGoal: GoalEntry;
   selectedLog: DailyLog;
+  isWorkdayMode: boolean;
   productionStage: ProductionStage;
   panelTexts: PanelTextContent;
   bodyHeight: number;
@@ -240,6 +244,7 @@ type LifePlanningPanelProps = {
   onUpdateGoalTarget: (value: string) => void;
   onUpdateFinishedFrames: (value: string) => void;
   onUpdateLifeNote: (value: string) => void;
+  onUpdateLifePhotos: (photos: string[]) => void;
   onUpdateTimeBlock: (blockId: number, field: "time" | "task", value: string) => void;
   onAddTimeBlock: () => void;
   onRemoveTimeBlock: (blockId: number) => void;
@@ -250,6 +255,7 @@ type LifePlanningPanelProps = {
 type CurrentReviewPanelProps = {
   selectedDate: string;
   selectedGoal: GoalEntry;
+  isWorkdayMode: boolean;
   currentDraftCumulative: number;
   currentColorCumulative: number;
   checkpointRows: Array<CheckpointItem & {
@@ -273,6 +279,7 @@ type CurrentReviewPanelProps = {
 type OverallGoalPanelProps = {
   selectedDate: string;
   selectedGoal: GoalEntry;
+  isWorkdayMode: boolean;
   visiblePlans: OverallPlanItem[];
   selectedPlan: OverallPlanItem | undefined;
   dailyLogs: Record<string, DailyLog>;
@@ -322,9 +329,10 @@ type PomodoroPanelProps = {
   onPreviewSound: (preset: BuiltInSound, volume: number) => void;
 };
 
-const STORAGE_KEY = "creative-dashboard-template-v1";
-const PANEL_HEIGHTS_STORAGE_KEY = "creative-dashboard-template-panel-heights-v1";
-const TOTAL_FRAMES = 100;
+const STORAGE_KEY = "creative-dashboard-v9";
+const PANEL_HEIGHTS_STORAGE_KEY = "creative-dashboard-panel-heights-v3";
+const TOTAL_FRAMES = 130;
+const WORKDAY_PLANNING_CUTOFF = "2026-05-01";
 
 const DEFAULT_PANEL_HEIGHTS: PanelHeights = {
   life: 900,
@@ -332,9 +340,36 @@ const DEFAULT_PANEL_HEIGHTS: PanelHeights = {
   overall: 900,
 };
 
-const seedDailyGoals: Record<string, GoalEntry> = {};
+const seedDailyGoals: Record<string, GoalEntry> = {
+  "2026-04-09": { target: "3-5", kind: "恢复日" },
+  "2026-04-10": { target: "6", kind: "轻量日" },
+  "2026-04-11": { target: "7", kind: "标准日" },
+  "2026-04-12": { target: "7", kind: "标准日" },
+  "2026-04-13": { target: "8", kind: "标准日" },
+  "2026-04-14": { target: "8", kind: "标准日" },
+  "2026-04-15": { target: "9", kind: "冲刺日" },
+  "2026-04-16": { target: "7", kind: "标准日" },
+  "2026-04-17": { target: "8", kind: "标准日" },
+  "2026-04-18": { target: "8", kind: "标准日" },
+  "2026-04-19": { target: "9", kind: "冲刺日" },
+  "2026-04-20": { target: "6", kind: "轻量日" },
+  "2026-04-21": { target: "8", kind: "标准日" },
+  "2026-04-22": { target: "8", kind: "标准日" },
+  "2026-04-23": { target: "9", kind: "冲刺日" },
+  "2026-04-24": { target: "8", kind: "标准日" },
+  "2026-04-25": { target: "7", kind: "标准日" },
+  "2026-04-26": { target: "修补", kind: "修正日" },
+  "2026-04-27": { target: "检查", kind: "修正日" },
+  "2026-04-28": { target: "交稿", kind: "交稿日" },
+};
 
-const CHECKPOINTS = [] as const;
+const CHECKPOINTS = [
+  { id: "cp-1", rangeLabel: "45-50", draftTarget: 45, colorTarget: 0, anchorDate: "2026-04-17", note: "线稿累计到这里后启动上色" },
+  { id: "cp-2", rangeLabel: "70-90", draftTarget: 70, colorTarget: 10, anchorDate: "2026-04-22", note: "线稿继续推进，上色开始追" },
+  { id: "cp-3", rangeLabel: "100-110", draftTarget: 100, colorTarget: 35, anchorDate: "2026-04-25", note: "线稿收口，上色进入主推进" },
+  { id: "cp-4", rangeLabel: "120-130", draftTarget: 120, colorTarget: 70, anchorDate: "2026-04-27", note: "交稿前追色缓冲" },
+  { id: "cp-5", rangeLabel: "最终交稿", draftTarget: 130, colorTarget: 130, anchorDate: "2026-04-28", note: "完整交稿" },
+] as const;
 
 const HOLIDAY_MAP: Record<string, { label: string; short: string; tint: string }> = {
   "2026-04-04": { label: "清明节", short: "清明", tint: "bg-[#f2d9dc] text-[#a05962] border-[#ddb6bc]" },
@@ -345,26 +380,26 @@ const HOLIDAY_MAP: Record<string, { label: string; short: string; tint: string }
 function buildStageTimeBlocks(stage: ProductionStage): TimeBlock[] {
   if (stage === "color") {
     return [
-      { id: 1, time: "09:00", task: "开始今日安排", done: false, icon: "coffee" },
-      { id: 2, time: "10:00-12:00", task: "主要任务 1", done: false, icon: "draw" },
-      { id: 3, time: "12:00-13:00", task: "午间休息", done: false, icon: "coffee" },
-      { id: 4, time: "13:00-15:00", task: "主要任务 2", done: false, icon: "draw" },
-      { id: 5, time: "15:30-17:00", task: "次要任务 / 杂项", done: false, icon: "work" },
-      { id: 6, time: "17:30-18:30", task: "晚间休息", done: false, icon: "coffee" },
-      { id: 7, time: "19:00-21:00", task: "收尾 / 复盘", done: false, icon: "draw" },
-      { id: 8, time: "21:00-21:30", task: "整理明日计划", done: false, icon: "moon" },
+      { id: 1, time: "09:30", task: "早餐", done: false, icon: "coffee" },
+      { id: 2, time: "10:00-12:30", task: "上色主推进 2-3 张", done: false, icon: "draw" },
+      { id: 3, time: "12:30-13:20", task: "午饭", done: false, icon: "coffee" },
+      { id: 4, time: "13:20-15:50", task: "上色主推进 2-3 张", done: false, icon: "draw" },
+      { id: 5, time: "16:00-18:00", task: "其他工作", done: false, icon: "work" },
+      { id: 6, time: "18:00-19:00", task: "晚饭", done: false, icon: "coffee" },
+      { id: 7, time: "19:00-22:00", task: "上色收口 / 少量修线", done: false, icon: "draw" },
+      { id: 8, time: "22:00-22:30", task: "备份 / 整理 / 次日清单", done: false, icon: "moon" },
     ];
   }
 
   return [
-    { id: 1, time: "09:00", task: "开始今日安排", done: false, icon: "coffee" },
-    { id: 2, time: "10:00-12:00", task: "主要任务 1", done: false, icon: "draw" },
-    { id: 3, time: "12:00-13:00", task: "午间休息", done: false, icon: "coffee" },
-    { id: 4, time: "13:00-15:00", task: "主要任务 2", done: false, icon: "draw" },
-    { id: 5, time: "15:30-17:00", task: "次要任务 / 杂项", done: false, icon: "work" },
-    { id: 6, time: "17:30-18:30", task: "晚间休息", done: false, icon: "coffee" },
-    { id: 7, time: "19:00-21:00", task: "收尾 / 复盘", done: false, icon: "draw" },
-    { id: 8, time: "21:00-21:30", task: "整理明日计划", done: false, icon: "moon" },
+    { id: 1, time: "09:30", task: "早餐", done: false, icon: "coffee" },
+    { id: 2, time: "10:00-12:30", task: "线稿新增 3 张", done: false, icon: "draw" },
+    { id: 3, time: "12:30-13:20", task: "午饭", done: false, icon: "coffee" },
+    { id: 4, time: "13:20-15:50", task: "线稿新增 / 回修 2-3 张", done: false, icon: "draw" },
+    { id: 5, time: "16:00-18:00", task: "其他工作", done: false, icon: "work" },
+    { id: 6, time: "18:00-19:00", task: "晚饭", done: false, icon: "coffee" },
+    { id: 7, time: "19:00-22:00", task: "连贯检查 / 修旧线 / 补缺镜头", done: false, icon: "draw" },
+    { id: 8, time: "22:00-22:30", task: "备份 / 整理 / 次日清单", done: false, icon: "moon" },
   ];
 }
 
@@ -381,28 +416,67 @@ const defaultReminderSettings: ReminderSettings = {
 };
 
 const defaultTopCards: TopCardsContent = {
-  heroTag: "creative dashboard template",
-  heroTitle: "创作计划模板",
-  heroBody: "这是一份可直接开写的空白模板。先选日期，再填写生活计划、阶段目标和总目标。顶部三块标题也都能自由改。",
-  leadTag: "starter note",
-  leadTitle: "先定今天要推进到哪里",
-  leadBody: "可以把这里当作当天主目标。完成后再去下面三块补记录。",
-  noteTag: "quick guide",
-  noteTitle: "从空白模板开始",
-  noteBodyPrimary: "先在总目标里加计划，再到生活记录里拆分当天任务。",
-  noteBodySecondary: "所有内容默认只保存在本地浏览器。你也可以导出备份。",
-  noteBadge: "template mode",
+  heroTag: "creative dashboard",
+  heroTitle: "原画打卡与生活手帐",
+  heroBody: "三个主要功能格分别处理生活计划和记录 / 当前累计目标和备注记录 / 总目标计划。三格都能收起展开，也都能直接改内容。",
+  leadTag: "atelier planning book",
+  leadTitle: "不是很激情的工作计划记录",
+  leadBody: "很困",
+  noteTag: "editorial note",
+  noteTitle: "2026.4.9的工作日志",
+  noteBodyPrimary: "生活计划和记录 / 当前累计目标和备注 / 总目标计划。",
+  noteBodySecondary: "",
+  noteBadge: "工作规划缓慢推进中",
   dateCardTitle: "当前日期",
-  dateCardDescription: "点月历格子切换日期，开始写自己的计划",
+  dateCardDescription: "",
 };
+
+function normalizeImportedTopCards(input?: Partial<TopCardsContent>): TopCardsContent {
+  const merged: TopCardsContent = {
+    ...defaultTopCards,
+    ...(input || {}),
+  };
+
+  const isModifiedLeadPreset =
+    merged.leadTitle === "今天先把原画推进到一个能安心收工的位置" &&
+    merged.leadBody === "目标会跟着当天数据变化。顶部三块标题文案现在都可以直接自定义。";
+
+  if (isModifiedLeadPreset) {
+    merged.leadTag = defaultTopCards.leadTag;
+    merged.leadTitle = defaultTopCards.leadTitle;
+    merged.leadBody = defaultTopCards.leadBody;
+  }
+
+  const isModifiedNotePreset =
+    merged.noteTitle === "三个主格都能打卡" &&
+    merged.noteBodySecondary === "当前累计会跟着数据变化。顶部说明卡的文案也能自己改。" &&
+    merged.noteBadge === "editable top cards";
+
+  if (isModifiedNotePreset) {
+    merged.noteTag = defaultTopCards.noteTag;
+    merged.noteTitle = defaultTopCards.noteTitle;
+    merged.noteBodyPrimary = defaultTopCards.noteBodyPrimary;
+    merged.noteBodySecondary = defaultTopCards.noteBodySecondary;
+    merged.noteBadge = defaultTopCards.noteBadge;
+  }
+
+  if (
+    merged.dateCardDescription === "点月历格子切换" ||
+    merged.dateCardDescription.includes("新的一个月规划中")
+  ) {
+    merged.dateCardDescription = defaultTopCards.dateCardDescription;
+  }
+
+  return merged;
+}
 
 const defaultPanelTexts: PanelTextContent = {
   lifeTitle: "Life Planning",
-  lifeDescription: "今日计划和记录",
-  reviewTitle: "Checkpoint Review",
-  reviewDescription: "阶段检查点",
+  lifeDescription: "生活计划和记录",
+  reviewTitle: "Cumulative Target",
+  reviewDescription: "关键节点",
   overallTitle: "Overall Goal",
-  overallDescription: "总目标和排期",
+  overallDescription: "阶段目标总览",
 };
 
 const defaultPomodoroState: PomodoroState = {
@@ -515,10 +589,10 @@ function createDefaultStore(): StoreShape {
 
 function getStageLifeNote(stage: ProductionStage): string {
   return stage === "draft"
-    ? `当前阶段：阶段一
-记录口径：今日重点 / 当前进度 / 待补内容`
-    : `当前阶段：阶段二
-记录口径：今日重点 / 当前进度 / 待补内容`;
+    ? `当前阶段：线稿累计期
+记录口径：新增线稿 / 回修镜头 / 累计线稿`
+    : `当前阶段：上色期
+记录口径：上色完成 / 少量修线 / 累计上色`;
 }
 
 function buildDefaultTodoItems(): TodoItem[] {
@@ -563,6 +637,92 @@ function createDailyLogForStage(stage: ProductionStage): DailyLog {
   };
 }
 
+function isWorkdayPlanningDate(dateKey: string): boolean {
+  return dateKey >= WORKDAY_PLANNING_CUTOFF;
+}
+
+function buildWorkdayTimeBlocks(): TimeBlock[] {
+  return [
+    { id: 1, time: "07:30-08:30", task: "晨起 & 能量早餐", done: false, icon: "coffee" },
+    { id: 2, time: "09:00-12:00", task: "深度工作（上午场）", done: false, icon: "work" },
+    { id: 3, time: "12:00-13:00", task: "滋养午餐", done: false, icon: "coffee" },
+    { id: 4, time: "13:00-13:45", task: "高效午休", done: false, icon: "moon" },
+    { id: 5, time: "14:00-18:00", task: "协作工作（下午场）", done: false, icon: "work" },
+    { id: 6, time: "18:30-19:30", task: "轻盈晚餐", done: false, icon: "coffee" },
+    { id: 7, time: "20:00-21:00", task: "运动时间", done: false, icon: "work" },
+    { id: 8, time: "21:30-23:00", task: "睡前复盘 & 陪伴", done: false, icon: "moon" },
+    { id: 9, time: "23:00", task: "熄灯休息", done: false, icon: "moon" },
+  ];
+}
+
+function createWorkdayPlanningLog(): DailyLog {
+  return {
+    draftFrames: 0,
+    colorFrames: 0,
+    timeBlocks: buildWorkdayTimeBlocks(),
+    lifeNote: "",
+    calendarNote: "",
+    hp: 72,
+    mp: 68,
+    mood: "",
+    moodNote: "",
+    noteAccent: "aqua",
+    todoItems: buildDefaultTodoItems(),
+  };
+}
+
+function looksLikeLegacyStageSchedule(log: DailyLog): boolean {
+  const blocks = log.timeBlocks || [];
+  return blocks.some((block) =>
+    block.time === "09:30" ||
+    block.task.includes("线稿新增") ||
+    block.task.includes("上色主推进") ||
+    block.task.includes("连贯检查 / 修旧线 / 补缺镜头"),
+  );
+}
+
+function mergeWorkdayPlanningLog(log?: DailyLog): DailyLog {
+  const normalized = ensureDailyLog(log);
+  const draftStageNote = getStageLifeNote("draft");
+  const colorStageNote = getStageLifeNote("color");
+
+  return {
+    ...normalized,
+    timeBlocks: buildWorkdayTimeBlocks(),
+    lifeNote:
+      normalized.lifeNote && normalized.lifeNote !== draftStageNote && normalized.lifeNote !== colorStageNote
+        ? normalized.lifeNote
+        : "",
+  };
+}
+
+function createDailyLogForDate(dateKey: string, stage: ProductionStage): DailyLog {
+  return isWorkdayPlanningDate(dateKey) ? createWorkdayPlanningLog() : createDailyLogForStage(stage);
+}
+
+function normalizeImportedDailyLogs(input?: Record<string, DailyLog>): Record<string, DailyLog> {
+  const source = input || {};
+  return Object.fromEntries(
+    Object.entries(source).map(([dateKey, log]) => {
+      const normalized = ensureDailyLog(log);
+      if (!isWorkdayPlanningDate(dateKey)) return [dateKey, normalized];
+      return [dateKey, looksLikeLegacyStageSchedule(normalized) ? mergeWorkdayPlanningLog(normalized) : normalized];
+    }),
+  );
+}
+
+function normalizeImportedCurrentReviews(input?: Record<string, CurrentReviewState>): Record<string, CurrentReviewState> {
+  const source = input || {};
+  return Object.fromEntries(
+    Object.entries(source).map(([dateKey, review]) => [dateKey, ensureReviewState(review)]),
+  );
+}
+
+function normalizeImportedOverallPlans(input?: OverallPlanItem[]): OverallPlanItem[] {
+  const source = Array.isArray(input) ? input : buildSeedOverallPlans();
+  return source.map((item) => normalizeOverallPlanItem(item));
+}
+
 function ensureDailyLog(log?: DailyLog): DailyLog {
   if (log) {
     return {
@@ -570,6 +730,7 @@ function ensureDailyLog(log?: DailyLog): DailyLog {
       colorFrames: log.colorFrames ?? 0,
       timeBlocks: normalizeTimeBlocks(log.timeBlocks ?? cloneDefaultTimeBlocks()),
       lifeNote: log.lifeNote ?? "",
+      lifePhotos: Array.isArray(log.lifePhotos) ? log.lifePhotos : [],
       calendarNote: log.calendarNote ?? "",
       hp: log.hp ?? 72,
       mp: log.mp ?? 68,
@@ -584,6 +745,7 @@ function ensureDailyLog(log?: DailyLog): DailyLog {
     colorFrames: 0,
     timeBlocks: normalizeTimeBlocks(cloneDefaultTimeBlocks()),
     lifeNote: "",
+    lifePhotos: [],
     calendarNote: "",
     hp: 72,
     mp: 68,
@@ -728,25 +890,25 @@ function getSoundLabel(preset: BuiltInSound): string {
 }
 
 function getProductionStageLabel(stage: ProductionStage): string {
-  return stage === "draft" ? "阶段一" : "阶段二";
+  return stage === "draft" ? "线稿累计期" : "上色期";
 }
 
 function getProductionStageDescription(stage: ProductionStage): string {
   return stage === "draft"
-    ? "先把今天最重要的任务拆清楚，按顺序推进。"
-    : "这里可以作为第二阶段，用来记录后续推进或收尾安排。";
+    ? "现在只推进线稿新增和连贯检查，不把上色混进主任务。"
+    : "现在以上色主推进为主，只保留少量修线。";
 }
 
 function getProductionTargetLabel(stage: ProductionStage): string {
-  return stage === "draft" ? "阶段一目标" : "阶段二目标";
+  return stage === "draft" ? "今日线稿目标" : "今日上色目标";
 }
 
 function getProductionFinishedLabel(stage: ProductionStage): string {
-  return stage === "draft" ? "阶段一完成" : "阶段二完成";
+  return stage === "draft" ? "今日线稿完成" : "今日上色完成";
 }
 
 function getProductionSuggestedTarget(stage: ProductionStage): string {
-  return stage === "draft" ? "3-5" : "2-4";
+  return stage === "draft" ? "5-7" : "4-6";
 }
 
 function getStageCount(log: DailyLog, stage: ProductionStage): number {
@@ -785,7 +947,10 @@ function normalizeCheckpointLabel(label: string): string {
 }
 
 function normalizeTimeBlockTask(task: string): string {
-  return (task || "").trim();
+  const safeTask = (task || "").trim();
+  if (safeTask === "线稿新增 3 张") return "线稿新增 3 张";
+  if (safeTask === "线稿新增 / 回修 2 张") return "线稿新增 / 回修 2 张";
+  return safeTask;
 }
 
 function normalizeTimeBlocks(blocks: TimeBlock[]): TimeBlock[] {
@@ -919,8 +1084,8 @@ function runSanityChecks(): void {
     [parseTargetMidpoint("8") === 8, "parseTargetMidpoint scalar failed"],
     [getMinutesFromTimeLabel("09:30") === 570, "getMinutesFromTimeLabel failed"],
     [getMonthDays(2026, 3).length >= 35, "getMonthDays grid failed"],
-    [Array.isArray(buildSeedOverallPlans()), "buildSeedOverallPlans failed"],
-    [Array.isArray(CHECKPOINTS), "checkpoints failed"],
+    [buildSeedOverallPlans().length > 0, "buildSeedOverallPlans failed"],
+    [CHECKPOINTS.length === 5, "checkpoints failed"],
     [shouldIgnoreResizeObserverError("ResizeObserver loop completed with undelivered notifications") === true, "resize observer filter failed"],
     [shouldIgnoreResizeObserverError("ordinary error") === false, "resize observer filter false positive"],
     [typeof patchResizeObserver === "function", "patchResizeObserver missing"],
@@ -1313,10 +1478,31 @@ function DateHeaderCard({
   );
 }
 
+function compressImageFile(file: File): Promise<string> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new window.Image();
+      img.onload = () => {
+        const maxW = 1200;
+        const scale = Math.min(1, maxW / img.width);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext("2d")?.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", 0.75));
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 function LifePlanningPanel({
   selectedDate,
   selectedGoal,
   selectedLog,
+  isWorkdayMode,
   productionStage,
   panelTexts,
   bodyHeight,
@@ -1326,6 +1512,7 @@ function LifePlanningPanel({
   onUpdateGoalTarget,
   onUpdateFinishedFrames,
   onUpdateLifeNote,
+  onUpdateLifePhotos,
   onUpdateTimeBlock,
   onAddTimeBlock,
   onRemoveTimeBlock,
@@ -1333,6 +1520,26 @@ function LifePlanningPanel({
   onUpdatePanelText,
 }: LifePlanningPanelProps) {
   const [isHeaderEditing, setIsHeaderEditing] = useState(false);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const photos = selectedLog.lifePhotos ?? [];
+
+  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    const slots = 9 - photos.length;
+    if (!files.length || slots <= 0) return;
+    Promise.all(files.slice(0, slots).map(compressImageFile)).then((compressed) => {
+      onUpdateLifePhotos([...photos, ...compressed]);
+    });
+  };
+
+  const removePhoto = (index: number) => {
+    const next = [...photos];
+    next.splice(index, 1);
+    onUpdateLifePhotos(next);
+  };
 
   return (
     <Card className={`${panelClass("paper")} ${interactiveCardClass} group relative h-full overflow-hidden`}>
@@ -1373,28 +1580,32 @@ function LifePlanningPanel({
       </CardHeader>
       {!collapsed ? (
         <CardContent className="relative z-20 space-y-4 overflow-y-auto pr-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:w-0" style={{ height: bodyHeight }}>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" className={`rounded-full ${productionStage === "draft" ? "bg-[#2f3b45] text-[#fbf5ec]" : "bg-[#fffaf2] text-[#4e4a43] border border-[#b9ae9d]"}`} onClick={() => onApplyStageTemplate("draft")}>阶段一</Button>
-            <Button type="button" size="sm" className={`rounded-full ${productionStage === "color" ? "bg-[#8c5a54] text-[#fbf5ec]" : "bg-[#fffaf2] text-[#4e4a43] border border-[#b9ae9d]"}`} onClick={() => onApplyStageTemplate("color")}>切到阶段二</Button>
-          </div>
-          <div className="text-sm leading-6 text-[#5d564d]">{getProductionStageDescription(productionStage)}</div>
-          <div className="rounded-[24px] border border-dashed border-[#d0c7b8] bg-[#f7f1e7] p-4">
-            <div className="grid grid-cols-3 gap-2 text-sm">
-              <Badge variant="outline" className="rounded-full border-[#beb29f] bg-[#fffaf3] text-[#62594e] justify-center">已完成 0/8</Badge>
-              <Badge variant="outline" className="rounded-full border-[#beb29f] bg-[#fffaf3] text-[#62594e] justify-center">今日 {getStageCount(selectedLog, productionStage) || 0} 张</Badge>
-              <Badge variant="outline" className="rounded-full border-[#beb29f] bg-[#fffaf3] text-[#62594e] justify-center">目标 {selectedGoal.target || getProductionSuggestedTarget(productionStage)}</Badge>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3 rounded-[24px] border border-dashed border-[#d0c7b8] bg-[#f7f1e7] p-4">
-            <div>
-              <div className="mb-2 text-sm text-[#766b5d]">{getProductionTargetLabel(productionStage)}</div>
-              <Input value={selectedGoal.target} onChange={(e) => onUpdateGoalTarget(e.target.value)} className="rounded-2xl border-[#c4baa9] bg-[#fffdf8]" />
-            </div>
-            <div>
-              <div className="mb-2 text-sm text-[#766b5d]">{getProductionFinishedLabel(productionStage)}</div>
-              <Input value={String(getStageCount(selectedLog, productionStage))} onChange={(e) => onUpdateFinishedFrames(e.target.value)} className="rounded-2xl border-[#c4baa9] bg-[#fffdf8]" />
-            </div>
-          </div>
+          {isWorkdayMode ? null : (
+            <>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" size="sm" className={`rounded-full ${productionStage === "draft" ? "bg-[#2f3b45] text-[#fbf5ec]" : "bg-[#fffaf2] text-[#4e4a43] border border-[#b9ae9d]"}`} onClick={() => onApplyStageTemplate("draft")}>线稿累计期</Button>
+                <Button type="button" size="sm" className={`rounded-full ${productionStage === "color" ? "bg-[#8c5a54] text-[#fbf5ec]" : "bg-[#fffaf2] text-[#4e4a43] border border-[#b9ae9d]"}`} onClick={() => onApplyStageTemplate("color")}>切到上色期</Button>
+              </div>
+              <div className="text-sm leading-6 text-[#5d564d]">{getProductionStageDescription(productionStage)}</div>
+              <div className="rounded-[24px] border border-dashed border-[#d0c7b8] bg-[#f7f1e7] p-4">
+                <div className="grid grid-cols-3 gap-2 text-sm">
+                  <Badge variant="outline" className="rounded-full border-[#beb29f] bg-[#fffaf3] text-[#62594e] justify-center">已完成 0/8</Badge>
+                  <Badge variant="outline" className="rounded-full border-[#beb29f] bg-[#fffaf3] text-[#62594e] justify-center">今日 {getStageCount(selectedLog, productionStage) || 0} 张</Badge>
+                  <Badge variant="outline" className="rounded-full border-[#beb29f] bg-[#fffaf3] text-[#62594e] justify-center">目标 {selectedGoal.target || getProductionSuggestedTarget(productionStage)}</Badge>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3 rounded-[24px] border border-dashed border-[#d0c7b8] bg-[#f7f1e7] p-4">
+                <div>
+                  <div className="mb-2 text-sm text-[#766b5d]">{getProductionTargetLabel(productionStage)}</div>
+                  <Input value={selectedGoal.target} onChange={(e) => onUpdateGoalTarget(e.target.value)} className="rounded-2xl border-[#c4baa9] bg-[#fffdf8]" />
+                </div>
+                <div>
+                  <div className="mb-2 text-sm text-[#766b5d]">{getProductionFinishedLabel(productionStage)}</div>
+                  <Input value={String(getStageCount(selectedLog, productionStage))} onChange={(e) => onUpdateFinishedFrames(e.target.value)} className="rounded-2xl border-[#c4baa9] bg-[#fffdf8]" />
+                </div>
+              </div>
+            </>
+          )}
           <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
             {selectedLog.timeBlocks.map((block) => (
               <div key={block.id} className="rounded-[24px] border border-[#d0c7b8] bg-[#fffdf8] p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
@@ -1421,7 +1632,28 @@ function LifePlanningPanel({
           <div className="rounded-[24px] border border-dashed border-[#c7bcaa] bg-[#f6eee1] p-4">
             <div className="mb-2 text-sm text-[#766b5d]">生活记录</div>
             <Textarea value={selectedLog.lifeNote} onChange={(e) => onUpdateLifeNote(e.target.value)} className="min-h-[170px] rounded-[24px] border-[#c4baa8] bg-[#fffdf8] resize-none" />
+            <div className="mt-3 flex flex-wrap gap-2">
+              {photos.map((src, i) => (
+                <div key={i} className="relative h-[72px] w-[72px] shrink-0 overflow-hidden rounded-[14px]">
+                  <img src={src} alt="" className="h-full w-full cursor-pointer object-cover" onClick={() => setLightboxSrc(src)} />
+                  <button type="button" onClick={() => removePhoto(i)} className="absolute right-1 top-1 flex h-[18px] w-[18px] items-center justify-center rounded-full bg-black/50 text-white transition-opacity hover:bg-black/70">
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+              {photos.length < 9 && (
+                <button type="button" onClick={() => fileInputRef.current?.click()} className="flex h-[72px] w-[72px] shrink-0 items-center justify-center rounded-[14px] border border-dashed border-[#c7bcaa] bg-[#fffdf8] text-[#a39789] transition-colors hover:border-[#8c7a6b] hover:text-[#6b5d52]">
+                  <ImagePlus className="h-5 w-5" />
+                </button>
+              )}
+            </div>
+            <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handlePhotoSelect} />
           </div>
+          {lightboxSrc ? (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80" onClick={() => setLightboxSrc(null)}>
+              <img src={lightboxSrc} alt="" className="max-h-[90vh] max-w-[90vw] rounded-[12px] object-contain" onClick={(e) => e.stopPropagation()} />
+            </div>
+          ) : null}
         </CardContent>
       ) : null}
     </Card>
@@ -1431,6 +1663,7 @@ function LifePlanningPanel({
 function CurrentReviewPanel({
   selectedDate,
   selectedGoal,
+  isWorkdayMode,
   currentDraftCumulative,
   currentColorCumulative,
   checkpointRows,
@@ -1481,48 +1714,101 @@ function CurrentReviewPanel({
         </div>
       </CardHeader>
       <CardContent className="relative z-20 space-y-4 overflow-y-auto pr-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:w-0" style={{ height: bodyHeight }}>
-        {!collapsed ? (
-          <div className="space-y-3 max-h-[320px] overflow-y-auto pr-1">
-            {checkpointRows.map((point, index) => (
-              <div key={point.id} className="rounded-[24px] border border-[#d1c7b7] bg-[#fffdf8] p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md" style={{ transform: `rotate(${index % 2 === 0 ? "-0.12deg" : "0.16deg"})` }}>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    {isEditing ? <Input value={point.note} onChange={(e) => onUpdateCheckpoint(point.id, "note", e.target.value)} className="h-9 rounded-full border-[#c4baa9] bg-[#fffdf8] text-sm text-[#766b5d]" /> : <div className="text-sm text-[#766b5d]">{point.note}</div>}
+        {isWorkdayMode ? (
+          <>
+            {!collapsed ? (
+              <div className="space-y-3 max-h-[320px] overflow-y-auto pr-1">
+                {checkpointRows.map((point, index) => (
+                  <div key={point.id} className="rounded-[24px] border border-[#d1c7b7] bg-[#fffdf8] p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md" style={{ transform: `rotate(${index % 2 === 0 ? "-0.12deg" : "0.16deg"})` }}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1 space-y-2">
+                        {isEditing ? (
+                          <>
+                            <Input value={point.rangeLabel} onChange={(e) => onUpdateCheckpoint(point.id, "rangeLabel", e.target.value)} placeholder="节点标题" className="h-9 rounded-full border-[#c4baa9] bg-[#fffdf8] text-sm text-[#2d3942]" />
+                            <Input type="date" value={point.anchorDate} onChange={(e) => onUpdateCheckpoint(point.id, "anchorDate", e.target.value)} className="h-9 w-[132px] rounded-full border-[#c4baa9] bg-[#fffdf8] text-sm" />
+                          </>
+                        ) : (
+                          <>
+                            <div className="text-lg font-semibold text-[#2d3942]" style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}>{point.rangeLabel || "未命名节点"}</div>
+                            <Badge variant="outline" className="rounded-full border-[#beb29f] bg-[#fffaf3] text-[#62594e]">{displayDate(point.anchorDate)}</Badge>
+                          </>
+                        )}
+                      </div>
+                      {isEditing ? <Button type="button" variant="outline" size="icon" className={`rounded-full border-[#d3b9ac] text-[#8c5a54] ${interactiveButtonClass}`} onClick={() => onRemoveCheckpoint(point.id)}><Trash2 className="h-4 w-4" /></Button> : null}
+                    </div>
+                    <div className="mt-3 rounded-[20px] border border-dashed border-[#cfc5b5] bg-[#f7f1e7] p-3">
+                      <div className="mb-2 text-sm text-[#766b5d]">阶段目标</div>
+                      {isEditing ? (
+                        <Input type="number" min="0" value={point.draftTarget} onChange={(e) => onUpdateCheckpoint(point.id, "draftTarget", e.target.value)} placeholder="目标数量" className="h-9 rounded-2xl border-[#c4baa9] bg-[#fffdf8]" />
+                      ) : (
+                        <div className="text-sm font-medium text-[#2d3942]">目标：{point.draftTarget}</div>
+                      )}
+                    </div>
+                    <div className="mt-3">
+                      {isEditing ? (
+                        <Textarea value={point.note} onChange={(e) => onUpdateCheckpoint(point.id, "note", e.target.value)} placeholder="阶段备注" className="min-h-[110px] resize-none rounded-[20px] border-[#c4baa8] bg-[#fffdf8]" />
+                      ) : (
+                        <div className="rounded-[20px] border border-dashed border-[#cfc5b5] bg-[#f7f1e7] p-3 text-sm leading-6 text-[#766b5d]">{point.note || "还没写阶段备注"}</div>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {isEditing ? <Input type="date" value={point.anchorDate} onChange={(e) => onUpdateCheckpoint(point.id, "anchorDate", e.target.value)} className="h-9 w-[118px] rounded-full border-[#c4baa9] bg-[#fffdf8] text-sm" /> : <Badge variant="outline" className="rounded-full border-[#beb29f] bg-[#fffaf3] text-[#62594e]">{displayDate(point.anchorDate)}</Badge>}
-                    {isEditing ? <Button type="button" variant="outline" size="icon" className={`rounded-full border-[#d3b9ac] text-[#8c5a54] ${interactiveButtonClass}`} onClick={() => onRemoveCheckpoint(point.id)}><Trash2 className="h-4 w-4" /></Button> : null}
+                ))}
+                {checkpointRows.length === 0 ? (
+                  <div className="rounded-[22px] border border-[#d0c7b8] bg-[#fffdf8] p-4 text-sm leading-6 text-[#766b5d]">这里还没有阶段节点，点上面的新增就会加进来。</div>
+                ) : null}
+              </div>
+            ) : null}
+            <div className="rounded-[24px] border border-dashed border-[#c7bcaa] bg-[#f6eee1] p-4 transition-all duration-200 group-hover:shadow-sm">
+              <div className="mb-2 text-sm text-[#766b5d]">阶段备注</div>
+              <Textarea value={review.note} onChange={(e) => onUpdateNote(e.target.value)} placeholder="写下阶段安排、月目标或临时判断。" className="min-h-[180px] resize-none rounded-[24px] border-[#c4baa8] bg-[#fffdf8] transition-all duration-200 focus:shadow-sm" />
+            </div>
+          </>
+        ) : (
+          <>
+            {!collapsed ? (
+              <div className="space-y-3 max-h-[320px] overflow-y-auto pr-1">
+                {checkpointRows.map((point, index) => (
+                  <div key={point.id} className="rounded-[24px] border border-[#d1c7b7] bg-[#fffdf8] p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md" style={{ transform: `rotate(${index % 2 === 0 ? "-0.12deg" : "0.16deg"})` }}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        {isEditing ? <Input value={point.note} onChange={(e) => onUpdateCheckpoint(point.id, "note", e.target.value)} className="h-9 rounded-full border-[#c4baa9] bg-[#fffdf8] text-sm text-[#766b5d]" /> : <div className="text-sm text-[#766b5d]">{point.note}</div>}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {isEditing ? <Input type="date" value={point.anchorDate} onChange={(e) => onUpdateCheckpoint(point.id, "anchorDate", e.target.value)} className="h-9 w-[118px] rounded-full border-[#c4baa9] bg-[#fffdf8] text-sm" /> : <Badge variant="outline" className="rounded-full border-[#beb29f] bg-[#fffaf3] text-[#62594e]">{displayDate(point.anchorDate)}</Badge>}
+                        {isEditing ? <Button type="button" variant="outline" size="icon" className={`rounded-full border-[#d3b9ac] text-[#8c5a54] ${interactiveButtonClass}`} onClick={() => onRemoveCheckpoint(point.id)}><Trash2 className="h-4 w-4" /></Button> : null}
+                      </div>
+                    </div>
+                    <div className="mt-3">
+                      {isEditing ? <Input value={point.rangeLabel} onChange={(e) => onUpdateCheckpoint(point.id, "rangeLabel", e.target.value)} className="h-12 rounded-2xl border-[#c4baa9] bg-[#fffdf8] text-3xl font-semibold text-[#2d3942]" style={{ fontFamily: 'Georgia, "Times New Roman", serif' }} /> : <div className="text-3xl font-semibold text-[#2d3942]" style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}>{point.rangeLabel}</div>}
+                    </div>
+                    <div className="mt-4 space-y-3 rounded-[20px] border border-dashed border-[#cfc5b5] bg-[#f7f1e7] p-3">
+                      <div className="grid gap-3 md:grid-cols-[52px_1fr_auto] md:items-center text-sm">
+                        <span className="text-[#766b5d]">线稿</span>
+                        {isEditing ? <Input type="number" min="0" value={point.draftTarget} onChange={(e) => onUpdateCheckpoint(point.id, "draftTarget", e.target.value)} className="h-9 rounded-2xl border-[#c4baa9] bg-[#fffdf8]" /> : <div className="font-medium text-[#2d3942]">目标：{point.draftTarget}</div>}
+                        <Badge variant="outline" className={`rounded-full ${point.passedDraft ? "border-[#a5b4a2] bg-[#edf2eb] text-[#597054]" : "border-[#d3b9ac] bg-[#fff8f2] text-[#8c5a54]"}`}>当前：{point.actualDraft}</Badge>
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-[52px_1fr_auto] md:items-center text-sm">
+                        <span className="text-[#766b5d]">上色</span>
+                        {isEditing ? <Input type="number" min="0" value={point.colorTarget} onChange={(e) => onUpdateCheckpoint(point.id, "colorTarget", e.target.value)} className="h-9 rounded-2xl border-[#c4baa9] bg-[#fffdf8]" /> : <div className="font-medium text-[#2d3942]">目标：{point.colorTarget}</div>}
+                        <Badge variant="outline" className={`rounded-full ${point.passedColor ? "border-[#a5b4a2] bg-[#edf2eb] text-[#597054]" : "border-[#d3b9ac] bg-[#fff8f2] text-[#8c5a54]"}`}>当前：{point.actualColor}</Badge>
+                      </div>
+                    </div>
                   </div>
-                </div>
-                <div className="mt-3">
-                  {isEditing ? <Input value={point.rangeLabel} onChange={(e) => onUpdateCheckpoint(point.id, "rangeLabel", e.target.value)} className="h-12 rounded-2xl border-[#c4baa9] bg-[#fffdf8] text-3xl font-semibold text-[#2d3942]" style={{ fontFamily: 'Georgia, "Times New Roman", serif' }} /> : <div className="text-3xl font-semibold text-[#2d3942]" style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}>{point.rangeLabel}</div>}
-                </div>
-                <div className="mt-4 space-y-3 rounded-[20px] border border-dashed border-[#cfc5b5] bg-[#f7f1e7] p-3">
-                  <div className="grid gap-3 md:grid-cols-[52px_1fr_auto] md:items-center text-sm">
-                    <span className="text-[#766b5d]">阶段一</span>
-                    {isEditing ? <Input type="number" min="0" value={point.draftTarget} onChange={(e) => onUpdateCheckpoint(point.id, "draftTarget", e.target.value)} className="h-9 rounded-2xl border-[#c4baa9] bg-[#fffdf8]" /> : <div className="font-medium text-[#2d3942]">目标：{point.draftTarget}</div>}
-                    <Badge variant="outline" className={`rounded-full ${point.passedDraft ? "border-[#a5b4a2] bg-[#edf2eb] text-[#597054]" : "border-[#d3b9ac] bg-[#fff8f2] text-[#8c5a54]"}`}>当前：{point.actualDraft}</Badge>
-                  </div>
-                  <div className="grid gap-3 md:grid-cols-[52px_1fr_auto] md:items-center text-sm">
-                    <span className="text-[#766b5d]">阶段二</span>
-                    {isEditing ? <Input type="number" min="0" value={point.colorTarget} onChange={(e) => onUpdateCheckpoint(point.id, "colorTarget", e.target.value)} className="h-9 rounded-2xl border-[#c4baa9] bg-[#fffdf8]" /> : <div className="font-medium text-[#2d3942]">目标：{point.colorTarget}</div>}
-                    <Badge variant="outline" className={`rounded-full ${point.passedColor ? "border-[#a5b4a2] bg-[#edf2eb] text-[#597054]" : "border-[#d3b9ac] bg-[#fff8f2] text-[#8c5a54]"}`}>当前：{point.actualColor}</Badge>
-                  </div>
+                ))}
+              </div>
+            ) : <div className="rounded-[22px] border border-[#d0c7b8] bg-[#fffdf8] p-4 text-sm leading-6 text-[#766b5d]">累计目标区已收起。展开后查看和修改关键节点。</div>}
+            <div className="rounded-[24px] border border-dashed border-[#c7bcaa] bg-[#f6eee1] p-4 transition-all duration-200 group-hover:shadow-sm">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <div className="text-sm text-[#766b5d]">阶段备注</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline" className={`rounded-full border ${getStatusTone(selectedGoal.kind)}`}>线稿累计 {currentDraftCumulative}</Badge>
+                  <Badge variant="outline" className={`rounded-full border ${getStatusTone(selectedGoal.kind)}`}>上色累计 {currentColorCumulative}</Badge>
                 </div>
               </div>
-            ))}
-          </div>
-        ) : <div className="rounded-[22px] border border-[#d0c7b8] bg-[#fffdf8] p-4 text-sm leading-6 text-[#766b5d]">累计目标区已收起。展开后查看和修改关键节点。</div>}
-        <div className="rounded-[24px] border border-dashed border-[#c7bcaa] bg-[#f6eee1] p-4 transition-all duration-200 group-hover:shadow-sm">
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <div className="text-sm text-[#766b5d]">阶段备注</div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className={`rounded-full border ${getStatusTone(selectedGoal.kind)}`}>阶段一累计 {currentDraftCumulative}</Badge>
-              <Badge variant="outline" className={`rounded-full border ${getStatusTone(selectedGoal.kind)}`}>阶段二累计 {currentColorCumulative}</Badge>
+              <Textarea value={review.note} onChange={(e) => onUpdateNote(e.target.value)} placeholder="写今天的累计目标判断、偏差、缺口和临时调整。" className="min-h-[180px] resize-none rounded-[24px] border-[#c4baa8] bg-[#fffdf8] transition-all duration-200 focus:shadow-sm" />
             </div>
-          </div>
-          <Textarea value={review.note} onChange={(e) => onUpdateNote(e.target.value)} placeholder="写今天的累计目标判断、偏差、缺口和临时调整。" className="min-h-[180px] resize-none rounded-[24px] border-[#c4baa8] bg-[#fffdf8] transition-all duration-200 focus:shadow-sm" />
-        </div>
+          </>
+        )}
       </CardContent>
     </Card>
   );
@@ -1531,6 +1817,7 @@ function CurrentReviewPanel({
 function OverallGoalPanel({
   selectedDate,
   selectedGoal,
+  isWorkdayMode,
   visiblePlans,
   selectedPlan,
   dailyLogs,
@@ -1582,94 +1869,164 @@ function OverallGoalPanel({
         </div>
       </CardHeader>
       <CardContent className="relative z-20 space-y-4 overflow-y-auto pr-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:w-0" style={{ height: bodyHeight }}>
-        <div className="rounded-[24px] border border-dashed border-[#d7b4bb] bg-[#f8eef1] p-4 transition-all duration-200 group-hover:shadow-sm">
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <div className="text-sm text-[#766b5d]">总目标</div>
-            <Badge variant="outline" className="rounded-full border-[#beb29f] bg-[#fffaf3] text-[#62594e]">已完成 {doneCount}/{totalCount}</Badge>
-          </div>
-          <div className="flex items-end gap-3">
-            <div className="text-4xl font-semibold text-[#2d3942]" style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}>{totalColored} / {totalFrames}</div>
-            {isEditing ? <Input type="number" min="1" value={totalFrames} onChange={(e) => onUpdateTotalFrames(e.target.value)} className="h-9 max-w-[110px] rounded-2xl border-[#c4baa9] bg-[#fffdf8]" /> : null}
-          </div>
-          <div className="mt-2 text-sm text-[#766b5d]">这里记录最终完成的总数量</div>
-        </div>
-        {!collapsed ? (
-          <div className="space-y-3 max-h-[430px] overflow-y-auto pr-1">
-            {visiblePlans.map((plan, index) => {
-              const isActive = plan.date === selectedDate;
-              const isPast = plan.date < selectedDate;
-              const actualColor = getColorCount(dailyLogs[plan.date]);
+        {isWorkdayMode ? (
+          !collapsed ? (
+            <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
+              {visiblePlans.map((plan, index) => {
+                const isActive = plan.date === selectedDate;
+                if (!isEditing) {
+                  return (
+                    <button
+                      key={plan.id}
+                      type="button"
+                      onClick={() => onSelectDate(plan.date)}
+                      className={`w-full rounded-[24px] border p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${isActive ? "border-[#33414d] bg-[#33414d] text-[#fbf5ec]" : "border-[#d1c7b7] bg-[#fffdf8] text-[#2d3942]"}`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className={`text-sm ${isActive ? "text-[#f2e9dc]" : "text-[#766b5d]"}`}>{displayDate(plan.date)}</div>
+                          <div className="mt-1 text-lg font-semibold" style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}>{plan.target || "工作日"}</div>
+                        </div>
+                        <Badge variant="outline" className={`rounded-full border ${isActive ? "border-[#d7cdbf] bg-transparent text-[#fbf5ec]" : getStatusTone(plan.kind)}`}>{plan.kind}</Badge>
+                      </div>
+                      <div className={`mt-3 text-sm leading-6 ${isActive ? "text-[#efe6d8]" : "text-[#766b5d]"}`}>{plan.note || ""}</div>
+                    </button>
+                  );
+                }
 
-              if (!isEditing) {
                 return (
-                  <button
-                    key={plan.id}
-                    type="button"
-                    onClick={() => onSelectDate(plan.date)}
-                    className={`w-full rounded-[22px] border p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
-                      isActive
-                        ? "border-[#2f3b45] bg-[#2f3b45] text-[#fbf5ec]"
-                        : isPast
-                          ? "border-[#d4c7b5] bg-[#efe7db] text-[#4e463e]"
-                          : "border-[#d1c7b7] bg-[#fffdf8] text-[#2d3942]"
-                    }`}
-                    style={{ transform: `rotate(${index % 2 === 0 ? "-0.12deg" : "0.16deg"})` }}
-                  >
+                  <div key={plan.id} className="rounded-[22px] border border-[#d1c7b7] bg-[#fffdf8] p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md" style={{ transform: `rotate(${index % 2 === 0 ? "-0.12deg" : "0.16deg"})` }}>
                     <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className={`text-sm ${isActive ? "text-[#fbf5ec]/88" : isPast ? "text-[#7b6f62]" : "text-[#766b5d]"}`}>{displayDate(plan.date)}</div>
-                        <div className={`mt-1 text-sm font-medium ${isActive ? "text-[#fbf5ec]" : isPast ? "text-[#5a5147]" : "text-[#2d3942]"}`}>{plan.kind}</div>
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <Input type="date" value={plan.date} onChange={(e) => onUpdatePlan(plan.id, "date", e.target.value)} className="h-9 rounded-full border-[#c4baa9] bg-[#fffdf8]" />
+                        <Input value={plan.target} onChange={(e) => onUpdatePlan(plan.id, "target", e.target.value)} placeholder="例如：工作日 / 本周目标" className="h-9 rounded-full border-[#c4baa9] bg-[#fffdf8]" />
+                        <Input value={plan.note} onChange={(e) => onUpdatePlan(plan.id, "note", e.target.value)} placeholder="给这一天留一句安排或备注" className="h-9 rounded-full border-[#c4baa9] bg-[#fffdf8]" />
                       </div>
-                      <div className={`text-2xl font-semibold ${isActive ? "text-[#fbf5ec]" : isPast ? "text-[#4e463e]" : "text-[#2d3942]"}`} style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}>
-                        {plan.target || actualColor || 0}
+                      <div className="w-[108px] shrink-0 space-y-2">
+                        <Select value={plan.kind} onValueChange={(value) => onUpdatePlan(plan.id, "kind", value)}>
+                          <SelectTrigger className={`h-9 rounded-full border-[#c4baa9] bg-[#fffdf8] ${interactiveButtonClass}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="恢复日">恢复日</SelectItem>
+                            <SelectItem value="轻量日">轻量日</SelectItem>
+                            <SelectItem value="标准日">标准日</SelectItem>
+                            <SelectItem value="冲刺日">冲刺日</SelectItem>
+                            <SelectItem value="修正日">修正日</SelectItem>
+                            <SelectItem value="交稿日">交稿日</SelectItem>
+                            <SelectItem value="自定义">自定义</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Button type="button" variant="outline" size="icon" className={`rounded-full border-[#d3b9ac] text-[#8c5a54] ${interactiveButtonClass}`} onClick={() => onRemovePlan(plan.id)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
                     </div>
-                  </button>
-                );
-              }
-
-              return (
-                <div key={plan.id} className="rounded-[22px] border border-[#d1c7b7] bg-[#fffdf8] p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md" style={{ transform: `rotate(${index % 2 === 0 ? "-0.12deg" : "0.16deg"})` }}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1 space-y-2">
-                      <Input type="date" value={plan.date} onChange={(e) => onUpdatePlan(plan.id, "date", e.target.value)} className="h-9 rounded-full border-[#c4baa9] bg-[#fffdf8]" />
-                      <Select value={plan.kind} onValueChange={(value) => onUpdatePlan(plan.id, "kind", value)}>
-                        <SelectTrigger className={`h-9 rounded-full border-[#c4baa9] bg-[#fffdf8] ${interactiveButtonClass}`}>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="恢复日">恢复日</SelectItem>
-                          <SelectItem value="轻量日">轻量日</SelectItem>
-                          <SelectItem value="标准日">标准日</SelectItem>
-                          <SelectItem value="冲刺日">冲刺日</SelectItem>
-                          <SelectItem value="修正日">修正日</SelectItem>
-                          <SelectItem value="交稿日">交稿日</SelectItem>
-                          <SelectItem value="自定义">自定义</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="w-[92px] shrink-0 space-y-2">
-                      <Input value={plan.target} onChange={(e) => onUpdatePlan(plan.id, "target", e.target.value)} className="h-9 rounded-full border-[#c4baa9] bg-[#fffdf8] text-right text-lg font-semibold text-[#2d3942]" style={{ fontFamily: 'Georgia, "Times New Roman", serif' }} />
-                      <div className="text-right text-xs text-[#766b5d]">完整稿 {actualColor} 张</div>
-                    </div>
-                  </div>
-                  <div className="mt-3 space-y-2">
-                    <Input value={plan.note} onChange={(e) => onUpdatePlan(plan.id, "note", e.target.value)} placeholder="给这一天留一句规划备注" className="h-9 rounded-full border-[#c4baa9] bg-[#fffdf8]" />
-                    <div className="flex items-center justify-between gap-2">
+                    <div className="mt-3 flex items-center justify-between gap-2">
                       <Button type="button" variant="outline" className={`rounded-full border-[#bbae9a] ${interactiveButtonClass}`} onClick={() => onTogglePlan(plan.id)}>
                         {plan.done ? "取消完成" : "标记完成"}
                       </Button>
-                      <Button type="button" variant="outline" size="icon" className={`rounded-full border-[#d3b9ac] text-[#8c5a54] ${interactiveButtonClass}`} onClick={() => onRemovePlan(plan.id)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
                     </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+              {visiblePlans.length === 0 ? (
+                <div className="rounded-[22px] border border-[#d0c7b8] bg-[#fffdf8] p-4 text-sm leading-6 text-[#766b5d]">还没有安排，点上面的新增就可以开始排这个月的目标。</div>
+              ) : null}
+            </div>
+          ) : null
         ) : (
-          <div className="rounded-[22px] border border-[#d0c7b8] bg-[#fffdf8] p-4 text-sm leading-6 text-[#766b5d]">总目标区已收起。展开后查看和修改阶段目标列表。</div>
+          <>
+            <div className="rounded-[24px] border border-dashed border-[#d7b4bb] bg-[#f8eef1] p-4 transition-all duration-200 group-hover:shadow-sm">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <div className="text-sm text-[#766b5d]">总目标</div>
+                <Badge variant="outline" className="rounded-full border-[#beb29f] bg-[#fffaf3] text-[#62594e]">已完成 {doneCount}/{totalCount}</Badge>
+              </div>
+              <div className="flex items-end gap-3">
+                <div className="text-4xl font-semibold text-[#2d3942]" style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}>{totalColored} / {totalFrames}</div>
+                {isEditing ? <Input type="number" min="1" value={totalFrames} onChange={(e) => onUpdateTotalFrames(e.target.value)} className="h-9 max-w-[110px] rounded-2xl border-[#c4baa9] bg-[#fffdf8]" /> : null}
+              </div>
+              <div className="mt-2 text-sm text-[#766b5d]">这里记录已经上色成完整原画的张数</div>
+            </div>
+            {!collapsed ? (
+              <div className="space-y-3 max-h-[430px] overflow-y-auto pr-1">
+                {visiblePlans.map((plan, index) => {
+                  const isActive = plan.date === selectedDate;
+                  const isPast = plan.date < selectedDate;
+                  const actualColor = getColorCount(dailyLogs[plan.date]);
+
+                  if (!isEditing) {
+                    return (
+                      <button
+                        key={plan.id}
+                        type="button"
+                        onClick={() => onSelectDate(plan.date)}
+                        className={`w-full rounded-[22px] border p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
+                          isActive
+                            ? "border-[#2f3b45] bg-[#2f3b45] text-[#fbf5ec]"
+                            : isPast
+                              ? "border-[#d4c7b5] bg-[#efe7db] text-[#4e463e]"
+                              : "border-[#d1c7b7] bg-[#fffdf8] text-[#2d3942]"
+                        }`}
+                        style={{ transform: `rotate(${index % 2 === 0 ? "-0.12deg" : "0.16deg"})` }}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className={`text-sm ${isActive ? "text-[#fbf5ec]/88" : isPast ? "text-[#7b6f62]" : "text-[#766b5d]"}`}>{displayDate(plan.date)}</div>
+                            <div className={`mt-1 text-sm font-medium ${isActive ? "text-[#fbf5ec]" : isPast ? "text-[#5a5147]" : "text-[#2d3942]"}`}>{plan.kind}</div>
+                          </div>
+                          <div className={`text-2xl font-semibold ${isActive ? "text-[#fbf5ec]" : isPast ? "text-[#4e463e]" : "text-[#2d3942]"}`} style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}>
+                            {plan.target || actualColor || 0}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  }
+
+                  return (
+                    <div key={plan.id} className="rounded-[22px] border border-[#d1c7b7] bg-[#fffdf8] p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md" style={{ transform: `rotate(${index % 2 === 0 ? "-0.12deg" : "0.16deg"})` }}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1 space-y-2">
+                          <Input type="date" value={plan.date} onChange={(e) => onUpdatePlan(plan.id, "date", e.target.value)} className="h-9 rounded-full border-[#c4baa9] bg-[#fffdf8]" />
+                          <Select value={plan.kind} onValueChange={(value) => onUpdatePlan(plan.id, "kind", value)}>
+                            <SelectTrigger className={`h-9 rounded-full border-[#c4baa9] bg-[#fffdf8] ${interactiveButtonClass}`}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="恢复日">恢复日</SelectItem>
+                              <SelectItem value="轻量日">轻量日</SelectItem>
+                              <SelectItem value="标准日">标准日</SelectItem>
+                              <SelectItem value="冲刺日">冲刺日</SelectItem>
+                              <SelectItem value="修正日">修正日</SelectItem>
+                              <SelectItem value="交稿日">交稿日</SelectItem>
+                              <SelectItem value="自定义">自定义</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="w-[92px] shrink-0 space-y-2">
+                          <Input value={plan.target} onChange={(e) => onUpdatePlan(plan.id, "target", e.target.value)} className="h-9 rounded-full border-[#c4baa9] bg-[#fffdf8] text-right text-lg font-semibold text-[#2d3942]" style={{ fontFamily: 'Georgia, "Times New Roman", serif' }} />
+                          <div className="text-right text-xs text-[#766b5d]">完整稿 {actualColor} 张</div>
+                        </div>
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        <Input value={plan.note} onChange={(e) => onUpdatePlan(plan.id, "note", e.target.value)} placeholder="给这一天留一句规划备注" className="h-9 rounded-full border-[#c4baa9] bg-[#fffdf8]" />
+                        <div className="flex items-center justify-between gap-2">
+                          <Button type="button" variant="outline" className={`rounded-full border-[#bbae9a] ${interactiveButtonClass}`} onClick={() => onTogglePlan(plan.id)}>
+                            {plan.done ? "取消完成" : "标记完成"}
+                          </Button>
+                          <Button type="button" variant="outline" size="icon" className={`rounded-full border-[#d3b9ac] text-[#8c5a54] ${interactiveButtonClass}`} onClick={() => onRemovePlan(plan.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="rounded-[22px] border border-[#d0c7b8] bg-[#fffdf8] p-4 text-sm leading-6 text-[#766b5d]">总目标区已收起。展开后查看和修改阶段目标列表。</div>
+            )}
+          </>
         )}
       </CardContent>
     </Card>
@@ -2200,10 +2557,10 @@ export default function CreativeWorkDashboard() {
       return {
         ...createDefaultStore(),
         ...parsed,
-        dailyLogs: parsed.dailyLogs || {},
-        currentReviews: parsed.currentReviews || {},
-        checkpoints: Array.isArray(parsed.checkpoints) && parsed.checkpoints.length > 0 ? parsed.checkpoints.map((item) => normalizeCheckpointItem(item)) : CHECKPOINTS.map((item) => normalizeCheckpointItem({ ...item })),
-        overallPlans: Array.isArray(parsed.overallPlans) ? parsed.overallPlans.map((item) => normalizeOverallPlanItem(item)) : buildSeedOverallPlans().map((item) => normalizeOverallPlanItem(item)),
+        dailyLogs: normalizeImportedDailyLogs(parsed.dailyLogs),
+        currentReviews: normalizeImportedCurrentReviews(parsed.currentReviews),
+        checkpoints: Array.isArray(parsed.checkpoints) ? parsed.checkpoints.map((item) => normalizeCheckpointItem(item)) : CHECKPOINTS.map((item) => normalizeCheckpointItem({ ...item })),
+        overallPlans: normalizeImportedOverallPlans(parsed.overallPlans),
         reminderSettings: {
           ...defaultReminderSettings,
           ...(parsed.reminderSettings || {}),
@@ -2213,10 +2570,7 @@ export default function CreativeWorkDashboard() {
           ...defaultPomodoroState,
           ...(parsed.pomodoro || {}),
         },
-        topCards: {
-          ...defaultTopCards,
-          ...(parsed.topCards || {}),
-        },
+        topCards: normalizeImportedTopCards(parsed.topCards),
         panelTexts: {
           ...defaultPanelTexts,
           ...(parsed.panelTexts || {}),
@@ -2258,6 +2612,7 @@ export default function CreativeWorkDashboard() {
   const selectedGoal = goalsMap[selectedDate] || { target: "", kind: "自定义" as GoalKind };
   const selectedLog = ensureDailyLog(store.dailyLogs[selectedDate]);
   const selectedReview = ensureReviewState(store.currentReviews[selectedDate]);
+  const isWorkdayMode = isWorkdayPlanningDate(selectedDate);
 
   const visibleMonthDate = useMemo(() => {
     const baseDate = parseDateKey(selectedDate);
@@ -2271,7 +2626,16 @@ export default function CreativeWorkDashboard() {
   const pomodoro = store.pomodoro;
 
   const totalFinished = useMemo(() => Object.values(store.dailyLogs).reduce((sum, item) => sum + getColorCount(item), 0), [store.dailyLogs]);
-  const completionRate = Math.min(100, Math.round((totalFinished / store.totalFrames) * 100));
+  const planningMonthPlans = useMemo(
+    () => visiblePlans.filter((plan) => isWorkdayPlanningDate(plan.date)),
+    [visiblePlans],
+  );
+  const planningMonthDoneCount = useMemo(() => planningMonthPlans.filter((plan) => plan.done).length, [planningMonthPlans]);
+  const planningMonthTotalCount = planningMonthPlans.length;
+  const isPlanningMonthView = visibleMonthDate >= parseDateKey(WORKDAY_PLANNING_CUTOFF);
+  const completionRate = isPlanningMonthView
+    ? (planningMonthTotalCount > 0 ? Math.min(100, Math.round((planningMonthDoneCount / planningMonthTotalCount) * 100)) : 0)
+    : Math.min(100, Math.round((totalFinished / store.totalFrames) * 100));
 
   const draftCumulativeByDate = useMemo(() => {
     const keys = Object.keys(store.dailyLogs).sort();
@@ -2348,7 +2712,7 @@ export default function CreativeWorkDashboard() {
         ...prev,
         dailyLogs: {
           ...prev.dailyLogs,
-          [selectedDate]: needsLog ? createDailyLogForStage(prev.productionStage) : prev.dailyLogs[selectedDate],
+          [selectedDate]: needsLog ? createDailyLogForDate(selectedDate, prev.productionStage) : prev.dailyLogs[selectedDate],
         },
         currentReviews: {
           ...prev.currentReviews,
@@ -2495,6 +2859,16 @@ export default function CreativeWorkDashboard() {
     }));
   };
 
+  const updateLifePhotos = (photos: string[]) => {
+    setStore((prev) => ({
+      ...prev,
+      dailyLogs: {
+        ...prev.dailyLogs,
+        [selectedDate]: { ...ensureDailyLog(prev.dailyLogs[selectedDate]), lifePhotos: photos },
+      },
+    }));
+  };
+
   const updateCalendarNote = (value: string) => {
     setStore((prev) => ({
       ...prev,
@@ -2616,7 +2990,7 @@ export default function CreativeWorkDashboard() {
 
   const applyProductionStageTemplate = (stage: ProductionStage) => {
     setStore((prev) => {
-      const currentLog = prev.dailyLogs[selectedDate] || createDailyLogForStage(stage);
+      const currentLog = prev.dailyLogs[selectedDate] || createDailyLogForDate(selectedDate, stage);
       const targetValue = getProductionSuggestedTarget(stage);
       const existing = prev.overallPlans.find((plan) => plan.date === selectedDate);
 
@@ -2804,7 +3178,7 @@ export default function CreativeWorkDashboard() {
       const nextId = Math.max(0, ...prev.overallPlans.map((plan) => plan.id)) + 1;
       return {
         ...prev,
-        overallPlans: [...prev.overallPlans, { id: nextId, date: selectedDate, target: "", kind: "自定义", note: "", done: false }],
+        overallPlans: [...prev.overallPlans, { id: nextId, date: selectedDate, target: isWorkdayPlanningDate(selectedDate) ? "工作日" : "", kind: "自定义", note: "", done: false }],
       };
     });
   };
@@ -2819,7 +3193,7 @@ export default function CreativeWorkDashboard() {
   const resetSelectedDay = () => {
     setStore((prev) => ({
       ...prev,
-      dailyLogs: { ...prev.dailyLogs, [selectedDate]: createDailyLogForStage(prev.productionStage) },
+      dailyLogs: { ...prev.dailyLogs, [selectedDate]: createDailyLogForDate(selectedDate, prev.productionStage) },
       currentReviews: { ...prev.currentReviews, [selectedDate]: ensureReviewState() },
     }));
   };
@@ -2979,9 +3353,9 @@ export default function CreativeWorkDashboard() {
         setStore({
           ...createDefaultStore(),
           ...importedStore,
-          dailyLogs: importedStore.dailyLogs || {},
-          currentReviews: importedStore.currentReviews || {},
-          overallPlans: importedStore.overallPlans || buildSeedOverallPlans(),
+          dailyLogs: normalizeImportedDailyLogs(importedStore.dailyLogs),
+          currentReviews: normalizeImportedCurrentReviews(importedStore.currentReviews),
+          overallPlans: normalizeImportedOverallPlans(importedStore.overallPlans),
           reminderSettings: {
             ...defaultReminderSettings,
             ...(importedStore.reminderSettings || {}),
@@ -3113,7 +3487,14 @@ export default function CreativeWorkDashboard() {
             />
           </div>
           <div className="lg:col-span-3">
-            <StatCard title="总进度" description={`${totalFinished} / ${store.totalFrames} 张`} value={`${completionRate}%`} sublabel="总盘子" progress={completionRate} icon={<Target className="h-5 w-5" />} />
+            <StatCard
+              title={isPlanningMonthView ? "本月进度" : "总进度"}
+              description={isPlanningMonthView ? `${planningMonthDoneCount} / ${planningMonthTotalCount} 项` : `${totalFinished} / ${store.totalFrames} 张`}
+              value={`${completionRate}%`}
+              sublabel={isPlanningMonthView ? "本月安排" : "总盘子"}
+              progress={completionRate}
+              icon={<Target className="h-5 w-5" />}
+            />
           </div>
           <div className="lg:col-span-3">
             <StatCard title="今日完成" description={`${activeFinishedNumber} / ${activeTargetNumber || "-"}`} value={`${todayRate}%`} sublabel="当日达成" progress={todayRate} icon={<CheckCircle2 className="h-5 w-5" />} />
@@ -3161,6 +3542,7 @@ export default function CreativeWorkDashboard() {
                     selectedDate={selectedDate}
                     selectedGoal={selectedGoal}
                     selectedLog={selectedLog}
+                    isWorkdayMode={isWorkdayMode}
                     productionStage={store.productionStage}
                     panelTexts={store.panelTexts}
                     bodyHeight={panelHeights.life}
@@ -3170,6 +3552,7 @@ export default function CreativeWorkDashboard() {
                     onUpdateGoalTarget={updateGoalTargetForSelectedDate}
                     onUpdateFinishedFrames={updateFinishedFrames}
                     onUpdateLifeNote={updateLifeNote}
+                    onUpdateLifePhotos={updateLifePhotos}
                     onUpdateTimeBlock={updateTimeBlock}
                     onAddTimeBlock={addTimeBlock}
                     onRemoveTimeBlock={removeTimeBlock}
@@ -3182,6 +3565,7 @@ export default function CreativeWorkDashboard() {
                   <CurrentReviewPanel
                     selectedDate={selectedDate}
                     selectedGoal={selectedGoal}
+                    isWorkdayMode={isWorkdayMode}
                     currentDraftCumulative={currentDraftCumulative}
                     currentColorCumulative={currentColorCumulative}
                     checkpointRows={checkpointRows}
@@ -3202,6 +3586,7 @@ export default function CreativeWorkDashboard() {
                   <OverallGoalPanel
                     selectedDate={selectedDate}
                     selectedGoal={selectedGoal}
+                    isWorkdayMode={isWorkdayMode}
                     visiblePlans={visiblePlans}
                     selectedPlan={selectedPlan}
                     dailyLogs={store.dailyLogs}
